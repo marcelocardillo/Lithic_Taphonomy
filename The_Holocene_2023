@@ -1,0 +1,148 @@
+#This is the script for Carranza and Cardillo 
+#"The role of Magellanic Penguins (Spheniscus magellanicus) on landscape dynamics and #lithic taphonomy in La Pastosa Islet, North Patagonia, Argentina"
+#comments and questions: marcelo.cardillo@gmail.com
+
+##packages
+library(geoR)
+library(spatstat)
+library(sp)
+library(maptools)
+library(dplyr)
+library(ggmap)
+library(ggplot2)
+
+## base map
+map<-get_googlemap(center = c(lon = -65.042, lat = -41.427),maptype = "satellite", zoom=16)
+ggmap(map)
+
+
+##data files   
+cords<-read.table("cordPastosa.txt",T)# spatial coordinates
+ocurr<-read.table("Ocurrence.txt",T)#ocurrence data
+VC<-read.table("VC.txt",T)# % of vegetation cover
+
+##transform cualitative data into factors
+ocurr$Artefacts=as.factor(ocurr$Artefacts)
+ocurr$Nest=as.factor(ocurr$Nest)
+ocurr$Ocurrence=as.factor(ocurr$Ocurrence)
+
+
+#read polygon
+tkm <- getKMLcoordinates("PolPastosa.kml", ignoreAltitude=T)
+
+##jitter redundant coordinates
+jitcords <- jitterDupCoords(cords, max=0.00001)
+
+##built a data frame 
+esp1=data.frame(jitcords, ocurr)
+
+
+##get point patterns object with marks
+complete_pp<- ppp(esp1$y,esp1$x, marks=esp1$Ocurrence, poly=tkm)
+
+##plot densities for entire dataset
+plot(density(split(complete_pp),sigma=0.0005), box=F)
+
+##plot quadrant counts 
+Quadrat <- quadratcount(split(complete_pp, nx= 6, ny=6))
+plot(Quadrat, cex=0.5)
+
+##filter by AP and PA to compare co-ocurrence pattern (see details in methods)
+#AP (abscence of penguins, presence of artifacts) and
+# PA (presence of penguins, abscence of artifacts)
+
+esp2=esp1%>%
+  filter(Ocurrence %in% c("AP", "PA"))
+
+esp2$Ocurrence <- droplevels(esp2$Ocurrence)
+
+##get point patterns object
+APyPA_pp<- ppp(esp2$y,esp2$x, marks=esp2$Ocurrence, poly=tkm)
+
+
+##plot densities for APyPA_pp(not shown in the paper)
+plot(density(split(APyPA_pp),sigma=0.0005), box=F, main=NULL)
+
+
+##plot quadrant counts form APyPA_pp(not shown in the paper)
+Quadrat <- quadratcount(split(APyPA_pp, nx= 6, ny=6))
+plot(Quadrat, cex=0.7)
+
+
+##fit CSR model to multitype point pattern with two factor levels
+# of AP (abscence of penguins, presence of artifacts) and
+# PA (presence of penguins, abscence of artifacts)
+
+fit1<-ppm(APyPA_pp~marks)
+fit1
+# fit1
+# Stationary multitype Poisson process
+# 
+# Possible marks: ‘AP’ and ‘PA’
+# 
+# Log intensity:  ~marks
+# 
+# Intensities:
+#   beta_AP  beta_PA 
+# 2567837 81683770 
+# 
+# Estimate      S.E.   CI95.lo   CI95.hi Ztest      Zval
+# (Intercept) 14.758574 0.1313064 14.501218 15.015930   *** 112.39795
+# marksPA      3.459792 0.1333544  3.198422  3.721161   ***  25.94435 #significant results
+
+##fit K test over fitted model and estimate confidence intervals by means of 100
+#simulations of complete spatial randomness
+
+K<-envelope(fit1,verbose=F)
+# Pointwise critical envelopes for K(r)
+# and observed value for ‘fit1’
+# Edge correction: “iso”
+# Obtained from 99 simulations of CSR
+# Alternative: two.sided
+# Significance level of pointwise Monte Carlo test: 2/100 = 0.02
+# .....................................................................
+# Math.label     Description                                      
+# r    r              distance argument r                              
+# obs  hat(K)[obs](r) observed value of K(r) for data pattern          
+# theo K[theo](r)     theoretical value of K(r) for CSR                
+# lo   hat(K)[lo](r)  lower pointwise envelope of K(r) from simulations
+# hi   hat(K)[hi](r)  upper pointwise envelope of K(r) from simulations
+# .....................................................................
+# Default plot formula:  .~r
+# where “.” stands for ‘obs’, ‘theo’, ‘hi’, ‘lo’
+# Columns ‘lo’ and ‘hi’ will be plotted as shading (by default)
+# Recommended range of argument r: [0, 0.0014072]
+# Available range of argument r: [0, 0.0014072]
+
+
+##segregation test between AP y PA
+
+segregation.test(APyPA_pp, nsim=100, verbose=F)
+# Monte Carlo test of spatial segregation of types
+# 
+# data:  APyPA_pp
+# T = 57.671, p-value = 0.009901
+
+########################################
+##Relative altitude and vegetation cover
+
+##Relative altitude for the area
+
+al<- ppp(esp1$y,esp1$x, marks=alt, poly=tkm)
+plot(Smooth(al, sigma=0.0005),box=F)
+contour(Smooth(al, sigma=0.0005),add=T)
+
+## vegetation cover map
+
+cove1r<- ppp(esp1$y,esp1$x, marks=VC$VC, poly=tkm)
+plot(Smooth(cover1, sigma=0.0005),box=F)
+contour(Smooth(cover1, sigma=0.0005),add=T)
+
+##segregation test penguins  vs landcover
+VC$VC=as.factor(VC$VC)##transform into factor
+cover2<- ppp(esp1$y,esp1$x, marks=VC$VC, poly=tkm)
+segregation.test(cover2, nsim=100, verbose=F)
+# Monte Carlo test of spatial segregation of types
+# 
+# data:  cover2
+# T = 928.97, p-value = 0.009901
